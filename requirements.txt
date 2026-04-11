@@ -1,0 +1,9 @@
+requests
+beautifulsoup4
+pandas
+Pillow
+torch
+torchvision
+transformers
+tqdm
+urllib3
