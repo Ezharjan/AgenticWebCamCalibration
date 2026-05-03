@@ -753,6 +753,16 @@ def _cli():
                    help="Output path for the validation overlay PNG.")
     p.add_argument("--json-out", default=None,
                    help="Write the full calibration result as JSON to this file.")
+    p.add_argument("--opencv-yaml", default=None,
+                   help="Write OpenCV-compatible %YAML:1.0 calibration "
+                        "(loadable with cv2.FileStorage).")
+    p.add_argument("--opencv-json", default=None,
+                   help="Write OpenCV-compatible JSON calibration.")
+    p.add_argument("--opencv-npz", default=None,
+                   help="Write a NumPy .npz with camera_matrix, dist_coeffs, "
+                        "rvec, tvec, image_size, rotation_matrix.")
+    p.add_argument("--ros-camera-info", default=None,
+                   help="Write a ROS sensor_msgs/CameraInfo YAML (plumb_bob).")
     p.add_argument("--verbose", type=int, default=0, choices=[0, 1, 2])
     args = p.parse_args()
 
@@ -801,6 +811,30 @@ def _cli():
     if args.image and args.overlay:
         out = render_validation_overlay(args.image, res, args.overlay)
         print(f"  Overlay     -> {out}")
+
+    # OpenCV-compatible exports (loaded lazily so the core solver has no
+    # hard dependency on the export module).
+    if args.opencv_yaml or args.opencv_json or args.opencv_npz or args.ros_camera_info:
+        try:
+            from opencv_export import (
+                export_opencv_yaml, export_opencv_json,
+                export_numpy_npz, export_ros_camera_info,
+            )
+        except ImportError as e:
+            print(f"  [!] opencv_export unavailable: {e}")
+        else:
+            if args.opencv_yaml:
+                out = export_opencv_yaml(res, args.opencv_yaml)
+                print(f"  OpenCV YAML -> {out}")
+            if args.opencv_json:
+                out = export_opencv_json(res, args.opencv_json)
+                print(f"  OpenCV JSON -> {out}")
+            if args.opencv_npz:
+                out = export_numpy_npz(res, args.opencv_npz)
+                print(f"  OpenCV NPZ  -> {out}")
+            if args.ros_camera_info:
+                out = export_ros_camera_info(res, args.ros_camera_info)
+                print(f"  ROS info    -> {out}")
 
 
 if __name__ == "__main__":

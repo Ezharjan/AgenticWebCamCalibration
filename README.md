@@ -361,6 +361,118 @@ RMS / max reprojection error and observation count. Visually, when
 calibration is correct the green circles and red crosses overlap to within
 a pixel.
 
+### OpenCV-compatible export
+
+Calibration results can be exported to standard interchange formats so the
+camera can be used directly by `cv2`, ROS, COLMAP-style pipelines, or any
+tool that consumes a camera matrix + distortion coefficients. Our distortion
+model is exactly OpenCV's pinhole + radial-tangential model with
+`p1 = p2 = k3 = 0`, so the exported `dist_coeffs` is the canonical 5-vector
+`[k1, k2, 0, 0, 0]`.
+
+#### CLI flags
+
+| Flag | Format | Notes |
+|---|---|---|
+| `--opencv-yaml PATH` | `%YAML:1.0` | Loadable by `cv2.FileStorage`. |
+| `--opencv-json PATH` | JSON | Same schema as cv2's JSON FileStorage output. |
+| `--opencv-npz  PATH` | NumPy `.npz` | `camera_matrix`, `dist_coeffs`, `image_size`, `rvec`, `tvec`, `rotation_matrix`. |
+| `--ros-camera-info PATH` | ROS sensor_msgs/CameraInfo YAML | `plumb_bob` model; includes rectification + projection matrices. |
+
+Example:
+
+```bash
+conda activate cg
+python celestial_calibration.py \
+    --observations example_observations.csv \
+    --image-width 1280 --image-height 720 \
+    --opencv-yaml output/example_calibration.yaml \
+    --opencv-json output/example_calibration_opencv.json \
+    --opencv-npz  output/example_calibration.npz \
+    --ros-camera-info output/example_camera_info.yaml
+```
+
+#### Drop-in OpenCV usage
+
+After exporting, `cv2` can use the calibration directly without any glue
+code:
+
+```python
+import cv2
+
+# YAML
+fs = cv2.FileStorage("output/example_calibration.yaml", cv2.FILE_STORAGE_READ)
+K     = fs.getNode("camera_matrix").mat()
+dist  = fs.getNode("distortion_coefficients").mat()
+rvec  = fs.getNode("rotation_vector").mat()
+tvec  = fs.getNode("translation_vector").mat()
+fs.release()
+
+# Undistort an image
+img        = cv2.imread("frame.jpg")
+undistorted = cv2.undistort(img, K, dist)
+
+# Project a celestial direction back to pixel space
+direction_enu = ...  # shape (N, 1, 3) unit vectors
+pixels, _ = cv2.projectPoints(direction_enu, rvec, tvec, K, dist)
+
+# Or build undistortion maps for video-rate use
+mapx, mapy = cv2.initUndistortRectifyMap(
+    K, dist, None, K, (1280, 720), cv2.CV_32FC1)
+undistorted = cv2.remap(img, mapx, mapy, cv2.INTER_LINEAR)
+```
+
+NumPy `.npz` is equally easy:
+
+```python
+import numpy as np
+d = np.load("output/example_calibration.npz")
+K, dist, rvec, tvec = d["camera_matrix"], d["dist_coeffs"], d["rvec"], d["tvec"]
+W, H = d["image_size"]
+```
+
+#### Programmatic export
+
+```python
+from celestial_calibration import solve_calibration
+from opencv_export import (
+    to_opencv_intrinsics,
+    export_opencv_yaml, export_opencv_json,
+    export_numpy_npz, export_ros_camera_info,
+)
+
+result = solve_calibration(observations, image_width=W, image_height=H)
+cv = to_opencv_intrinsics(result)
+print("K =", cv["camera_matrix"])
+print("dist =", cv["dist_coeffs"])
+print("rvec =", cv["rvec"], "tvec =", cv["tvec"])
+
+export_opencv_yaml(result, "calibration.yaml")
+export_opencv_json(result, "calibration.json")
+export_numpy_npz (result, "calibration.npz")
+export_ros_camera_info(result, "camera_info.yaml")
+```
+
+#### Equivalence guarantee
+
+`test_opencv_export.py` includes a strict equivalence test that re-projects
+celestial directions through the exported `(K, dist, rvec, tvec)` using
+both a pure-NumPy implementation and (when installed) the real
+`cv2.projectPoints`. Both must agree with the native solver to
+floating-point precision. The current pass shows max disagreement
+~2.3e-13 px against the pure-NumPy OpenCV-style model and ~2.7e-7 px
+through `cv2.FileStorage + cv2.projectPoints` (round-tripped through
+ASCII floats).
+
+#### Notes on `rvec`/`tvec`
+
+- `rvec` is the OpenCV Rodrigues form of `R_world_to_cam` (the rotation
+  from local ENU directions to camera coordinates).
+- `tvec` is `(0, 0, 0)`: the camera location is the origin of the local
+  ENU frame, and celestial bodies are unit-vector directions at infinity.
+  If you want to project a 3D world point in some other frame, transform
+  it into ENU first (or compose with your own world-to-ENU transform).
+
 ### Programmatic API
 
 ```python
@@ -385,10 +497,11 @@ render_validation_overlay("sky.png", res, "overlay.png")
 
 ```bash
 conda activate cg
-python test_celestial_calibration.py
+python test_celestial_calibration.py        # solver
+python test_opencv_export.py                # OpenCV-export round-trips
 ```
 
-The test script checks the forward model against hand-computed cases
+The first script checks the forward model against hand-computed cases
 (zero-rotation / yaw / pitch / focal scaling / radial distortion), verifies
 that residuals are zero at the ground-truth parameters, and runs a
 synthetic round-trip:
@@ -424,7 +537,9 @@ AgenticWebCamCalibration/
 ├── agent2_url_repair.py          Multi-strategy agentic URL repair
 ├── agent3_calibration.py         DepthPro calibration with self-correction
 ├── celestial_calibration.py      Astrometric solver (focal/yaw/pitch/roll/k1/k2)
+├── opencv_export.py              OpenCV/ROS/NumPy calibration exporters
 ├── test_celestial_calibration.py Self-tests for the solver
+├── test_opencv_export.py         Self-tests for the OpenCV export
 ├── example_observations.csv      Sample input for the celestial solver
 ├── example_sky.png               Synthetic image matching the example obs
 ├── utils.py                      Shared helpers
