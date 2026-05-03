@@ -528,6 +528,180 @@ synthetic round-trip:
   consumer webcams are well-modelled this way; if you have a known offset,
   pass `--cx --cy`.
 
+## Periodic Frame Capture (`frame_capture.py`)
+
+A standalone script that downloads one frame at a fixed cadence from a
+single webcam URL for a fixed duration (the defaults are **1 frame per
+minute for 24 hours**, matching the typical calibration-data-collection
+workflow). Each frame is saved with a UTC timestamp.
+
+### Folder layout
+
+The output is laid out so that one camera, one session, and one calendar
+day each get their own clean container:
+
+```text
+captures/                                       # default --out
+└── <camera_slug>/                              # from --name or URL host
+    └── <session_start_iso>/                    # e.g. 2026-05-03T20-30-00Z
+        ├── frames/
+        │   └── <YYYY-MM-DD>/                   # one folder per UTC date
+        │       ├── HH-MM-SSZ_NNNNN.jpg
+        │       ├── HH-MM-SSZ_NNNNN.jpg
+        │       └── ...
+        ├── manifest.jsonl                      # one JSON line per attempted frame
+        ├── session.json                        # config snapshot + final summary
+        └── capture.log                         # human-readable log
+```
+
+A 24-hour session that crosses midnight produces two date sub-folders;
+the frame filenames remain monotonic (`NNNNN` is the absolute tick index).
+
+### Quick start
+
+```bash
+conda activate cg
+
+# Default: 1 frame per minute for 24 hours
+python frame_capture.py --url https://example.com/cam.jpg
+
+# Smoke-test: 6 frames at 10s interval into a custom output root
+python frame_capture.py --url https://example.com/cam.jpg \
+    --duration 1m --interval 10s --out captures --name myroof
+
+# Background a real 24-hour run
+nohup python frame_capture.py --url https://example.com/cam.jpg \
+    --name myroof > captures/myroof_stdout.log 2>&1 &
+```
+
+Press `Ctrl+C` once at any time: the current tick finishes, the manifest
+and `session.json` are flushed, and a clean summary is printed. A second
+`Ctrl+C` aborts immediately.
+
+### CLI flags
+
+| Flag | Default | Description |
+|---|---|---|
+| `--url`              | required | Camera image URL (http/https). |
+| `--duration`         | `24h`    | Total capture duration. Accepts `24h`, `5m`, `30s`, `0.5h`, or a bare number-of-seconds. |
+| `--interval`         | `60s`    | Time between consecutive frames. Same syntax as `--duration`. |
+| `--out`              | `captures` | Output root directory. |
+| `--name`             | (host)   | Camera slug. Default is derived from the URL hostname. |
+| `--connect-timeout`  | `10`     | HTTP connect timeout in seconds. |
+| `--read-timeout`     | `15`     | HTTP read timeout in seconds. |
+| `--max-retries`      | `2`      | Number of attempts per frame (>= 1). |
+| `--retry-backoff`    | `2.0`    | Linear backoff (seconds) between retries. |
+| `--user-agent`       | `Mozilla/5.0 (compatible; FrameCapture/1.0)` | Custom User-Agent header. |
+
+### Manifest schema (`manifest.jsonl`)
+
+Every attempted tick — successful, failed, or skipped — produces one JSON
+line. Fields below; values are absent if not applicable.
+
+| Field | Type | Notes |
+|---|---|---|
+| `seq`                    | int   | Absolute tick index, starting at 0. |
+| `scheduled_utc`          | str   | ISO-8601 UTC time the tick was supposed to fire. |
+| `completed_utc`          | str   | ISO-8601 UTC time the download finished. |
+| `status`                 | str   | `ok`, `failed`, or `skipped_overrun`. |
+| `attempts`               | int   | Number of HTTP attempts made for this tick. |
+| `http_code`              | int   | Last HTTP status (e.g. 200 / 404). |
+| `duration_ms`            | int   | Wall-clock time spent on the tick (download + verify). |
+| `path`                   | str   | Frame path, relative to the session directory. |
+| `size_bytes`             | int   | Frame size on disk. |
+| `sha256`                 | str   | SHA-256 of the frame bytes. |
+| `image_format`           | str   | `jpeg`, `png`, `gif`, ... |
+| `width`, `height`        | int   | Decoded image dimensions. |
+| `duplicate_of_previous`  | bool  | True if this frame's sha256 equals the previous saved frame's. |
+| `error`                  | str   | One of `timeout_connect`, `timeout_read`, `ssl_error`, `dns_failure`, `connection_error`, `too_many_redirects`, `http_NNN`, `empty_response`, `not_an_image`, `unknown_error:<Type>` (failed only). |
+
+### Session metadata (`session.json`)
+
+A single JSON document written when the session starts and re-written on
+completion (or after every 20 ticks). Fields:
+
+| Field | Notes |
+|---|---|
+| `schema`              | `frame_capture/1` |
+| `url`, `camera_slug`  | The exact URL and slug used. |
+| `session_dir`         | Absolute path of this session's directory. |
+| `session_start_utc`, `session_end_utc` | ISO-8601 UTC. |
+| `interval_s`, `duration_s`, `expected_frames` | Configured cadence. |
+| `connect_timeout_s`, `read_timeout_s`, `max_retries`, `retry_backoff_s`, `user_agent` | Configured HTTP behaviour. |
+| `complete`            | `false` while running, `true` after a clean exit. |
+| `n_attempted`, `n_ok`, `n_failed`, `n_skipped_overrun`, `n_unique_hashes`, `n_duplicates` | Final counters. |
+| `bytes_total`, `bytes_total_human` | Disk usage. |
+
+### Reliability properties
+
+* **Drift-free scheduling.** Tick `n` is anchored at `session_start + n * interval`
+  using `time.monotonic()`, so a slow individual download never causes the
+  whole capture to fall behind. Over a 24-hour run, the last tick fires at
+  exactly the same wall-clock offset it would have without any earlier
+  delays.
+* **Skip on overrun.** If a download takes longer than `interval`, the
+  missed ticks are recorded as `skipped_overrun` and capture jumps
+  forward to the next future tick (no pile-up).
+* **Real-image verification.** A frame is only counted as `ok` if the
+  bytes decode through `PIL.Image.open(...).verify()` — a webcam that
+  returns an HTML "service unavailable" page is treated as `failed`.
+* **Atomic writes.** Each frame is written to `*.tmp` and `os.replace`-d
+  into place, so an interrupted run never leaves a half-written image.
+* **Streaming, fsync-d manifest.** Each manifest line is flushed and
+  fsync-d so the exact set of saved frames is recoverable even after a
+  hard crash.
+* **Clean Ctrl+C.** SIGINT finishes the current tick, flushes the
+  manifest and `session.json`, and exits 0. A second Ctrl+C aborts.
+
+### Using the captured frames with the celestial solver
+
+The captured frames are normal images plus a manifest, so any downstream
+tool can consume them. To feed them into the **celestial calibration
+solver** (`celestial_calibration.py`):
+
+1. Pick frames where the sun, moon or a bright star is clearly visible.
+2. Mark the body's pixel position in each chosen frame (any annotation
+   tool works — even GIMP/Photoshop crosshairs; record `pixel_x, pixel_y`).
+3. Build an `observations.csv` with `timestamp_utc,pixel_x,pixel_y,body`
+   for each marked frame; the timestamp is the tick's `scheduled_utc`
+   from `manifest.jsonl`.
+4. Run the solver with `--latitude` and `--longitude` of the camera so
+   skyfield can compute apparent (az, el) from the timestamps.
+
+```bash
+python celestial_calibration.py \
+    --observations my_observations.csv \
+    --image-width 1280 --image-height 720 \
+    --latitude 37.7749 --longitude -122.4194 --elevation 30 \
+    --image captures/myroof/2026-05-03T20-30-00Z/frames/2026-05-03/12-00-00Z_00720.jpg \
+    --overlay overlay.png \
+    --opencv-yaml calibration.yaml
+```
+
+### Troubleshooting
+
+**Capture saves zero frames**
+The URL probably doesn't return a real image. Check the manifest's
+`error` column — if every entry says `not_an_image`, open the URL in a
+browser; many cameras redirect to an HTML viewer page rather than
+serving the JPEG directly. Use Agent 2 (URL repair) to find a
+direct-image URL.
+
+**Frame count is less than expected**
+Look at `n_skipped_overrun` and `n_failed` in `session.json`. Skips
+mean the camera is slower than the requested `--interval`; either
+raise `--interval` or lower `--read-timeout`. Failures mean the camera
+returned errors; the per-error breakdown is in `manifest.jsonl`.
+
+**Capture must survive a logout / disconnect**
+Use `nohup`, `tmux`, or `screen`. The script writes the manifest after
+every frame, so even a `SIGKILL` only loses the in-flight tick.
+
+**Disk usage estimate**
+At ~1 MB/frame (a typical 1280x720 JPEG) and 1440 frames/day, expect
+roughly 1.5 GB/day per camera. Smaller cameras (640x480, 200 KB/frame)
+produce ~300 MB/day.
+
 ## Project Structure
 
 ```text
@@ -538,6 +712,7 @@ AgenticWebCamCalibration/
 ├── agent3_calibration.py         DepthPro calibration with self-correction
 ├── celestial_calibration.py      Astrometric solver (focal/yaw/pitch/roll/k1/k2)
 ├── opencv_export.py              OpenCV/ROS/NumPy calibration exporters
+├── frame_capture.py              Periodic webcam frame capture (1/min for 24h)
 ├── test_celestial_calibration.py Self-tests for the solver
 ├── test_opencv_export.py         Self-tests for the OpenCV export
 ├── example_observations.csv      Sample input for the celestial solver
@@ -545,7 +720,8 @@ AgenticWebCamCalibration/
 ├── utils.py                      Shared helpers
 ├── requirements.txt              Dependencies
 ├── README.md                     This file
-└── output/                       CSV / JSON / overlay outputs (auto-created)
+├── output/                       CSV / JSON / overlay outputs (auto-created)
+└── captures/                     Frame-capture sessions (auto-created)
 ```
 
 ## License

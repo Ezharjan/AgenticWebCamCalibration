@@ -41,3 +41,68 @@
 ============================================================
   OpenCV YAML -> output/calibration.yaml
   OpenCV NPZ  -> output/calibration.npz
+
+
+############################## M1 Terminal Logs ##############################
+
+(cg) PS D:\AgenticWebCamCalibration> python frame_capture.py --url https://cameras.alertcalifornia.org/public-camera-data/Axis-Artois/latest-frame.jpg --duration 1m --interval 10s --name artois_digitalpath
+2026-05-03T20:46:22Z INFO Starting capture: url=https://cameras.alertcalifornia.org/public-camera-data/Axis-Artois/latest-frame.jpg slug=artois_digitalpath interval=10.0s duration=1m00s ticks=6
+2026-05-03T20:46:22Z INFO Session dir: D:\AgenticWebCamCalibration\captures\artois_digitalpath\2026-05-03T20-46-22Z
+2026-05-03T20:46:23Z INFO tick 1/6 ok 291.4 KB jpeg 1920x1080 in 797ms (attempt 1) -> frames/2026-05-03/20-46-22Z_00000.jpg
+2026-05-03T20:46:33Z INFO tick 2/6 ok 291.4 KB jpeg 1920x1080 in 766ms (attempt 1) -> frames/2026-05-03/20-46-32Z_00001.jpg  [duplicate]
+2026-05-03T20:46:43Z INFO tick 3/6 ok 291.4 KB jpeg 1920x1080 in 812ms (attempt 1) -> frames/2026-05-03/20-46-42Z_00002.jpg  [duplicate]
+2026-05-03T20:46:53Z INFO tick 4/6 ok 291.4 KB jpeg 1920x1080 in 766ms (attempt 1) -> frames/2026-05-03/20-46-52Z_00003.jpg  [duplicate]
+2026-05-03T20:47:03Z INFO tick 5/6 ok 276.3 KB jpeg 1920x1080 in 1047ms (attempt 1) -> frames/2026-05-03/20-47-02Z_00004.jpg
+2026-05-03T20:47:13Z INFO tick 6/6 ok 274.1 KB jpeg 1920x1080 in 1062ms (attempt 1) -> frames/2026-05-03/20-47-12Z_00005.jpg
+2026-05-03T20:47:13Z INFO
+2026-05-03T20:47:13Z INFO ================================================================
+2026-05-03T20:47:13Z INFO ======================= Capture finished =======================
+2026-05-03T20:47:13Z INFO ================================================================
+2026-05-03T20:47:13Z INFO   Camera URL    : https://cameras.alertcalifornia.org/public-camera-data/Axis-Artois/latest-frame.jpg
+2026-05-03T20:47:13Z INFO   Camera slug   : artois_digitalpath
+2026-05-03T20:47:13Z INFO   Session dir   : D:\AgenticWebCamCalibration\captures\artois_digitalpath\2026-05-03T20-46-22Z
+2026-05-03T20:47:13Z INFO   Started (UTC) : 2026-05-03T20:46:22Z
+2026-05-03T20:47:13Z INFO   Ended   (UTC) : 2026-05-03T20:47:13Z
+2026-05-03T20:47:13Z INFO   Interval      : 10.0s
+2026-05-03T20:47:13Z INFO   Target frames : 6
+2026-05-03T20:47:13Z INFO   Saved (ok)    : 6  (100.0% of target)
+2026-05-03T20:47:13Z INFO   Failed        : 0
+2026-05-03T20:47:13Z INFO   Skipped       : 0
+2026-05-03T20:47:13Z INFO   Total bytes   : 1.7 MB
+2026-05-03T20:47:13Z INFO   Unique frames : 3
+2026-05-03T20:47:13Z INFO   Duplicates    : 3
+2026-05-03T20:47:13Z INFO ================================================================
+(cg) PS D:\AgenticWebCamCalibration>
+
+(cg) PS D:\AgenticWebCamCalibration> python frame_capture.py --url https://cameras.alertcalifornia.org/public-camera-data/Axis-Kealia2/latest-frame.jpg --duration 10m --interval 60s --name kealia2heco
+2026-05-03T21:02:58Z INFO Starting capture: url=https://cameras.alertcalifornia.org/public-camera-data/Axis-Kealia2/latest-frame.jpg slug=kealia2heco interval=60.0s duration=10m00s ticks=10
+2026-05-03T21:02:58Z INFO Session dir: D:\AgenticWebCamCalibration\captures\kealia2heco\2026-05-03T21-02-58Z
+2026-05-03T21:02:59Z INFO tick 1/10 ok 315.5 KB jpeg 1920x1080 in 875ms (attempt 1) -> frames/2026-05-03/21-02-58Z_00000.jpg
+2026-05-03T21:04:00Z INFO tick 2/10 ok 346.4 KB jpeg 1920x1080 in 1391ms (attempt 1) -> frames/2026-05-03/21-03-58Z_00001.jpg
+2026-05-03T21:04:59Z INFO tick 3/10 ok 345.8 KB jpeg 1920x1080 in 1063ms (attempt 1) -> frames/2026-05-03/21-04-58Z_00002.jpg
+2026-05-03T21:05:59Z INFO tick 4/10 ok 343.9 KB jpeg 1920x1080 in 1000ms (attempt 1) -> frames/2026-05-03/21-05-58Z_00003.jpg
+2026-05-03T21:06:59Z INFO tick 5/10 ok 343.5 KB jpeg 1920x1080 in 1125ms (attempt 1) -> frames/2026-05-03/21-06-58Z_00004.jpg
+2026-05-03T21:07:59Z INFO tick 6/10 ok 346.4 KB jpeg 1920x1080 in 1125ms (attempt 1) -> frames/2026-05-03/21-07-58Z_00005.jpg
+2026-05-03T21:08:59Z INFO tick 7/10 ok 346.8 KB jpeg 1920x1080 in 1078ms (attempt 1) -> frames/2026-05-03/21-08-58Z_00006.jpg
+2026-05-03T21:09:59Z INFO tick 8/10 ok 307.6 KB jpeg 1920x1080 in 859ms (attempt 1) -> frames/2026-05-03/21-09-58Z_00007.jpg
+2026-05-03T21:10:59Z INFO tick 9/10 ok 283.9 KB jpeg 1920x1080 in 875ms (attempt 1) -> frames/2026-05-03/21-10-58Z_00008.jpg
+2026-05-03T21:11:59Z INFO tick 10/10 ok 279.0 KB jpeg 1920x1080 in 1000ms (attempt 1) -> frames/2026-05-03/21-11-58Z_00009.jpg
+2026-05-03T21:11:59Z INFO
+2026-05-03T21:11:59Z INFO ================================================================
+2026-05-03T21:11:59Z INFO ======================= Capture finished =======================
+2026-05-03T21:11:59Z INFO ================================================================
+2026-05-03T21:11:59Z INFO   Camera URL    : https://cameras.alertcalifornia.org/public-camera-data/Axis-Kealia2/latest-frame.jpg
+2026-05-03T21:11:59Z INFO   Camera slug   : kealia2heco
+2026-05-03T21:11:59Z INFO   Session dir   : D:\AgenticWebCamCalibration\captures\kealia2heco\2026-05-03T21-02-58Z
+2026-05-03T21:11:59Z INFO   Started (UTC) : 2026-05-03T21:02:58Z
+2026-05-03T21:11:59Z INFO   Ended   (UTC) : 2026-05-03T21:11:59Z
+2026-05-03T21:11:59Z INFO   Interval      : 60.0s
+2026-05-03T21:11:59Z INFO   Target frames : 10
+2026-05-03T21:11:59Z INFO   Saved (ok)    : 10  (100.0% of target)
+2026-05-03T21:11:59Z INFO   Failed        : 0
+2026-05-03T21:11:59Z INFO   Skipped       : 0
+2026-05-03T21:11:59Z INFO   Total bytes   : 3.2 MB
+2026-05-03T21:11:59Z INFO   Unique frames : 10
+2026-05-03T21:11:59Z INFO   Duplicates    : 0
+2026-05-03T21:11:59Z INFO ================================================================
+(cg) PS D:\AgenticWebCamCalibration>
