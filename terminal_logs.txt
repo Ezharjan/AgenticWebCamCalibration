@@ -1,0 +1,43 @@
+############################## A2 & A6 Terminal Logs ##############################
+(cg) PS D:\AgenticWebCamCalibration> python celestial_calibration.py --observations example_observations.csv --image-width 1280 --image-height 720 --image example_sky.png --overlay output/example_overlay.png --json-out output/example_calibration.json
+
+=============== Celestial Calibration Result ===============
+  Observations      : 12
+  Converged         : True
+  Cost (LSQ)        : 1.7275
+  RMS reproj error  : 0.537 px
+  Median            : 0.476 px
+  Max               : 0.744 px
+
+  focal_length_px   : 949.520
+  yaw_deg           : +130.0022
+  pitch_deg         : +9.9973
+  roll_deg          : -1.4766
+  k1                : -0.067749
+  k2                : +0.017913
+  FOV_h_deg         : 67.962
+  FOV_v_deg         : 41.527
+============================================================
+  JSON result -> output/example_calibration.json
+  Overlay     -> output/example_overlay.png
+(cg) PS D:\AgenticWebCamCalibration> python celestial_calibration.py --observations example_observations.csv --image-width 1280 --image-height 720 --opencv-yaml output/calibration.yaml --opencv-npz output/calibration.npz
+
+=============== Celestial Calibration Result ===============
+  Observations      : 12
+  Converged         : True
+  Cost (LSQ)        : 1.7275
+  RMS reproj error  : 0.537 px
+  Median            : 0.476 px
+  Max               : 0.744 px
+
+  focal_length_px   : 949.520
+  yaw_deg           : +130.0022
+  pitch_deg         : +9.9973
+  roll_deg          : -1.4766
+  k1                : -0.067749
+  k2                : +0.017913
+  FOV_h_deg         : 67.962
+  FOV_v_deg         : 41.527
+============================================================
+  OpenCV YAML -> output/calibration.yaml
+  OpenCV NPZ  -> output/calibration.npz
