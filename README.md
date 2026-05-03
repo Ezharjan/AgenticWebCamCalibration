@@ -4,6 +4,11 @@
 A three-agent pipeline that validates, repairs, and calibrates live webcam URLs
 using Apple DepthPro — entirely free and local, with no paid APIs or keys.
 
+In addition to the agentic pipeline, the repo ships a **closed-form
+astrometric calibration solver** (`celestial_calibration.py`) that recovers
+focal length, yaw/pitch/roll and radial distortion from observations of the
+sun, moon, planets or named stars in a webcam image.
+
 Each agent operates **agentically**: it reasons about failures, selects the best
 strategy, retries with alternative approaches, and validates its own results.
 
@@ -34,20 +39,41 @@ field of view).
      transient err  • Wayback Machine     • Retry: center crop
                     • Pattern mutations   • Retry: resize
                     • FAA-specific API    • Confidence scoring
+
+  ────────────────────────────────────────────────────────────
+  Optional: closed-form astrometric solver
+  ┌──────────────────────────────────────────────────────────┐
+  │  observations.csv  (>= 6 (timestamp, pixel, body) rows)  │
+  │              │                                           │
+  │              ▼                                           │
+  │  celestial_calibration.solve_calibration()               │
+  │              │                                           │
+  │              ▼                                           │
+  │  focal_length_px, yaw, pitch, roll, k1, k2  +  overlay   │
+  └──────────────────────────────────────────────────────────┘
 ```
 
 ## Requirements
 - Python 3.9+
 - CUDA GPU recommended for Agent 3 (CPU fallback available, ~3× slower)
 - ~2 GB disk space for the DepthPro model cache
+- `scipy` and `skyfield` for the celestial calibration solver
+  (see `celestial_calibration.py`); skyfield additionally downloads the
+  `de421.bsp` JPL ephemeris (~17 MB) on first use.
 
 ## Installation
+
+The repository is developed against a conda environment named `cg`. The
+recommended workflow is:
 
 ```bash
 git clone https://github.com/Ezharjan/AgenticWebCamCalibration.git
 cd AgenticWebCamCalibration
+conda activate cg                # all subsequent commands run in this env
 pip install -r requirements.txt
 ```
+
+Every script in this repo is intended to be run inside `conda activate cg`.
 
 CUDA note: if pip installs a CPU-only PyTorch, reinstall the GPU version:
 ```bash
@@ -58,6 +84,7 @@ pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
 
 Run all three agents on the full dataset:
 ```bash
+conda activate cg
 python main.py --csv webcam_list.csv
 ```
 
@@ -74,6 +101,16 @@ python main.py --agents 1,2
 Resume a previous run (already-processed rows are automatically skipped):
 ```bash
 python main.py
+```
+
+Run the celestial calibration solver on the bundled example:
+```bash
+python celestial_calibration.py \
+    --observations example_observations.csv \
+    --image-width 1280 --image-height 720 \
+    --image example_sky.png \
+    --overlay output/example_overlay.png \
+    --json-out output/example_calibration.json
 ```
 
 ## CLI Reference
@@ -165,6 +202,8 @@ whether the FOV falls within the typical webcam range (30°–130°).
 | Wayback Machine CDX API | Last-known-good snapshot lookup | Free, no key |
 | apple/DepthPro-hf (Hugging Face) | Camera intrinsic estimation | Free, runs locally |
 | PyTorch | Model inference backend | Free |
+| scipy, skyfield, numpy | Celestial calibration solver | Free |
+| JPL DE421 ephemeris | Sun/moon/planet positions for skyfield | Free, public domain |
 
 No API keys are required.
 
@@ -186,18 +225,212 @@ to validate behaviour first.
 Simply re-run `python main.py`. Rows already processed by each agent are
 detected automatically (by checking status columns) and skipped.
 
+## Celestial Calibration Solver (`celestial_calibration.py`)
+
+In addition to Agent 3's monocular DepthPro estimator, the project ships a
+**closed-form astrometric solver** that recovers full camera geometry from
+observations of celestial bodies. Given **>= 6** triplets of
+`(timestamp_utc, pixel_xy, body)`, it solves for:
+
+| Parameter | Meaning |
+|---|---|
+| `focal_length_px` | pinhole focal length (px), square pixels |
+| `yaw_deg`         | compass heading of the optical axis (positive: North -> East) |
+| `pitch_deg`       | tilt of the optical axis (positive: above horizon) |
+| `roll_deg`        | rotation about the optical axis (positive: image content CCW) |
+| `k1`, `k2`        | Brown-Conrady radial distortion coefficients |
+
+### Camera and world model
+
+The solver assumes a pinhole camera with single focal length `f`, principal
+point fixed at the image centre (configurable via `--cx --cy`), and 2-term
+radial distortion. The camera frame is right-handed with `+x` right, `+y`
+down, `+z` along the optical axis. The world is local **ENU**
+(East-North-Up) at the camera location. At `yaw=pitch=roll=0` the optical
+axis points North and `+x` points East.
+
+For a celestial body whose true direction in ENU is the unit vector
+`v = (sin(Az) cos(El), cos(Az) cos(El), sin(El))`, the forward projection is:
+
+```
+v_cam   = R_roll(roll) * R_yaw_pitch(yaw, pitch) * v
+x_n     = v_cam[0] / v_cam[2]
+y_n     = v_cam[1] / v_cam[2]
+r2      = x_n^2 + y_n^2
+(x_d, y_d) = (1 + k1*r2 + k2*r2^2) * (x_n, y_n)
+(u, v_pix) = (f * x_d + cx, f * y_d + cy)
+```
+
+The solver minimises the sum of squared pixel residuals
+`sum_i ||(u_i, v_i) - (u_obs_i, v_obs_i)||^2` using
+`scipy.optimize.least_squares` (Trust-Region/Levenberg-Marquardt with
+finite-difference Jacobian). A pure-numpy LM fallback is included so the
+solver can also run without scipy (slower; recommended only for testing).
+
+### Observation CSV format
+
+```csv
+timestamp_utc,pixel_x,pixel_y,body,az_deg,el_deg,weight
+2026-01-15T03:00:00Z,208.36,368.39,sirius,,,
+2026-01-15T03:15:00Z,676.80,107.33,betelgeuse,,,
+...
+```
+
+- `timestamp_utc` — ISO-8601 (e.g. `2026-01-15T03:00:00Z`). Required.
+- `pixel_x`, `pixel_y` — observed pixel of the body in the calibration image.
+- `body` — `sun`, `moon`, `mercury`, `venus`, `mars`, `jupiter`, `saturn`,
+  `uranus`, `neptune`, or one of the named stars (`polaris`, `sirius`,
+  `vega`, `arcturus`, `capella`, `rigel`, `procyon`, `betelgeuse`,
+  `altair`, `aldebaran`, `antares`, `spica`, `pollux`, `deneb`,
+  `regulus`, `fomalhaut`, `mira`, `canopus`).
+- `az_deg`, `el_deg` (optional) — apparent compass azimuth and elevation in
+  degrees. If supplied, the solver uses these directly and skips the skyfield
+  lookup (useful when you already have observed positions or for offline use).
+- `weight` (optional, default `1.0`) — per-observation residual weight.
+
+### Quick start
+
+```bash
+conda activate cg                          # use the project env
+python celestial_calibration.py \
+    --observations example_observations.csv \
+    --image-width 1280 --image-height 720 \
+    --image example_sky.png \
+    --overlay output/example_overlay.png \
+    --json-out output/example_calibration.json
+```
+
+If your CSV omits `az_deg`/`el_deg`, also pass:
+
+```bash
+    --latitude 37.7749 --longitude -122.4194 --elevation 30
+```
+
+so skyfield can compute apparent body positions from the camera location.
+
+### CLI flags
+
+| Flag | Default | Description |
+|---|---|---|
+| `--observations` | required | Path to the input CSV |
+| `--image-width`  | required | Image width in pixels |
+| `--image-height` | required | Image height in pixels |
+| `--latitude`     | none | Camera latitude (deg). Required unless every row has explicit `az_deg`/`el_deg`. |
+| `--longitude`    | none | Camera longitude (deg). |
+| `--elevation`    | 0    | Camera elevation (m, WGS84). |
+| `--cx`, `--cy`   | image centre | Override the principal point. |
+| `--fix-distortion` | off | Solve with `k1=k2=0` (4-parameter solve). |
+| `--fix-roll`       | off | Solve with `roll=0` (5-parameter solve, or 3 with `--fix-distortion`). |
+| `--image`        | none | Calibration image path. Required for overlay. |
+| `--overlay`      | none | Where to save the validation overlay PNG. |
+| `--json-out`     | none | Where to save the full result JSON. |
+| `--verbose`      | 0    | scipy `least_squares` verbose level (0/1/2). |
+
+### Output
+
+The solver prints a result table and (when `--json-out` is given) writes a
+JSON file with the full result, including per-observation reprojection
+residuals. Example fields:
+
+```json
+{
+  "focal_length_px": 949.52, "yaw_deg": 130.00, "pitch_deg": 10.00,
+  "roll_deg": -1.48, "k1": -0.0677, "k2": 0.0179,
+  "image_width": 1280, "image_height": 720, "cx": 640.0, "cy": 360.0,
+  "rms_reprojection_error_px": 0.54, "max_reprojection_error_px": 0.74,
+  "median_reprojection_error_px": 0.48,
+  "n_observations": 12, "converged": true,
+  "fov_horizontal_deg": 67.96, "fov_vertical_deg": 41.53
+}
+```
+
+### Validation overlay
+
+When `--image` and `--overlay` are supplied, the solver renders the input
+image with:
+
+- **Green circles** at the observed pixel positions, labelled with the
+  body name;
+- **Red crosses** at the predicted pixel positions (after applying the
+  solved geometry and distortion);
+- **Yellow segments** connecting each observed/predicted pair (the
+  reprojection residual).
+
+A header band reports the recovered `f`, FOV, `yaw/pitch/roll`, distortion,
+RMS / max reprojection error and observation count. Visually, when
+calibration is correct the green circles and red crosses overlap to within
+a pixel.
+
+### Programmatic API
+
+```python
+from datetime import datetime, timezone
+from celestial_calibration import (
+    Observation, solve_calibration, render_validation_overlay,
+)
+
+obs = [
+    Observation(timestamp=datetime(2026, 1, 15, 3, 0, tzinfo=timezone.utc),
+                pixel_x=208.36, pixel_y=368.39, body="sirius",
+                az_deg=105.0, el_deg=8.0),
+    # ... at least 6 ...
+]
+res = solve_calibration(obs, image_width=1280, image_height=720)
+print(res.focal_length_px, res.yaw_deg, res.pitch_deg, res.roll_deg,
+      res.k1, res.k2, res.rms_reprojection_error_px)
+render_validation_overlay("sky.png", res, "overlay.png")
+```
+
+### Self-tests
+
+```bash
+conda activate cg
+python test_celestial_calibration.py
+```
+
+The test script checks the forward model against hand-computed cases
+(zero-rotation / yaw / pitch / focal scaling / radial distortion), verifies
+that residuals are zero at the ground-truth parameters, and runs a
+synthetic round-trip:
+
+| Scenario | Expected behaviour |
+|---|---|
+| Noise-free, 25 obs spread across FOV  | All 6 parameters recovered to numerical precision; RMS <= 1e-3 px. |
+| Gaussian noise sigma = 0.3 px, 25 obs | RMS approx noise floor; `f` within a few px, angles within <= 0.05 deg, `k1`/`k2` within <= 0.02. |
+
+### Practical tips
+
+- **Spread observations across the field of view.** If all observations
+  cluster near the optical axis, `f` and `k1` become highly correlated and
+  the distortion coefficients will be poorly determined. For a full 6-DOF
+  fit, aim for observations at the corners as well.
+- **At least 6 observations are required** (8+ recommended) — there are 6
+  free parameters.
+- For very narrow-FOV cameras or short observation sessions, use
+  `--fix-distortion` to solve only for `f, yaw, pitch, roll`.
+- Marker localisation noise of ~0.3 px (typical for a centroided sun or
+  bright star) yields ~5 px focal-length uncertainty over a typical webcam
+  FOV. Sub-arcminute angular accuracy is achievable.
+- The principal point `(cx, cy)` defaults to the image centre. Most
+  consumer webcams are well-modelled this way; if you have a known offset,
+  pass `--cx --cy`.
+
 ## Project Structure
 
 ```text
 AgenticWebCamCalibration/
-├── main.py                  Orchestrator & CLI entry point
-├── agent1_health_check.py   URL validation with agentic retry
-├── agent2_url_repair.py     Multi-strategy agentic URL repair
-├── agent3_calibration.py    DepthPro calibration with self-correction
-├── utils.py                 Shared helpers (validation, rate limiter, logging)
-├── requirements.txt         Dependencies
-├── README.md                This file
-└── output/                  Single output CSV (auto-created)
+├── main.py                       Orchestrator & CLI entry point
+├── agent1_health_check.py        URL validation with agentic retry
+├── agent2_url_repair.py          Multi-strategy agentic URL repair
+├── agent3_calibration.py         DepthPro calibration with self-correction
+├── celestial_calibration.py      Astrometric solver (focal/yaw/pitch/roll/k1/k2)
+├── test_celestial_calibration.py Self-tests for the solver
+├── example_observations.csv      Sample input for the celestial solver
+├── example_sky.png               Synthetic image matching the example obs
+├── utils.py                      Shared helpers
+├── requirements.txt              Dependencies
+├── README.md                     This file
+└── output/                       CSV / JSON / overlay outputs (auto-created)
 ```
 
 ## License

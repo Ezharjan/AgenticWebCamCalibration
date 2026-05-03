@@ -7,3 +7,6 @@ torchvision
 transformers
 tqdm
 urllib3
+numpy
+scipy
+skyfield
